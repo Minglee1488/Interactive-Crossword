@@ -1,59 +1,51 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Crossword Puzzle</title>
+<title>Interactive Crossword Puzzle</title>
 
 <style>
 body{
-font-family:Arial;
-text-align:center;
-background:#f6f6f6;
+    text-align:center;
+    font-family:Arial;
 }
 
 #container{
-position:relative;
-display:inline-block;
+    position:relative;
+    display:inline-block;
 }
 
 #puzzle{
-display:block;
+    display:block;
 }
 
 #canvas{
-position:absolute;
-left:0;
-top:0;
-touch-action:none;
-}
-
-#wordlist{
-margin-top:20px;
-max-width:600px;
-margin-left:auto;
-margin-right:auto;
-font-size:18px;
-}
-
-.word{
-display:inline-block;
-margin:6px 10px;
-padding:4px 8px;
-border-radius:6px;
-background:white;
-}
-
-.found{
-text-decoration:line-through;
-background:#c8f7c5;
+    position:absolute;
+    left:0;
+    top:0;
+    touch-action: none; /* smooth drawing on touch devices */
 }
 
 #message{
-font-size:30px;
-color:green;
-margin-top:20px;
-font-weight:bold;
+    font-size:26px;
+    color:green;
+    margin-top:15px;
+    font-weight:bold;
+}
+
+#wordList{
+    margin-top:20px;
+}
+
+#wordList span{
+    margin:5px;
+    font-weight:bold;
+    font-size:16px;
+}
+
+.strikethrough{
+    text-decoration: line-through;
+    color:green;
 }
 </style>
 
@@ -64,201 +56,186 @@ font-weight:bold;
 <h1>Crossword Puzzle</h1>
 
 <div id="container">
-<img id="puzzle" src="crossword.png">
-<canvas id="canvas"></canvas>
+    <img id="puzzle" src="crossword.png">
+    <canvas id="canvas"></canvas>
 </div>
 
-<div id="wordlist"></div>
-
 <div id="message"></div>
-
-<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+<div id="wordList"></div>
 
 <script>
 
-const canvas=document.getElementById("canvas");
-const ctx=canvas.getContext("2d");
-const img=document.getElementById("puzzle");
+// --- Canvas setup ---
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const img = document.getElementById("puzzle");
 
-img.onload=()=>{
-canvas.width=img.width;
-canvas.height=img.height;
-}
+img.onload = () => {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    drawWords(); // draw found words initially
+};
 
-let drawing=false;
-let currentLine=[];
-let lines=[];
+// --- Variables ---
+let drawing = false;
+let currentLine = [];
+const lines = [];
 
-const wordsData = WORD_COORDS; // automatically inserted by Python
+const words = [
+    {name:"CHRONIC", x1:50, y1:100, x2:200, y2:100, found:false},
+    {name:"ACUTE", x1:50, y1:150, x2:150, y2:150, found:false},
+    {name:"INTRAVENOUS", x1:50, y1:200, x2:250, y2:200, found:false},
+    {name:"INFLAMMATION", x1:50, y1:250, x2:280, y2:250, found:false},
+    {name:"INFECTION", x1:50, y1:300, x2:200, y2:300, found:false},
+    {name:"PROGNOSIS", x1:50, y1:350, x2:230, y2:350, found:false},
+    {name:"HYPERTENSION", x1:50, y1:400, x2:300, y2:400, found:false},
+    {name:"ASYMPTOMATIC", x1:50, y1:450, x2:310, y2:450, found:false},
+    {name:"ADHESIONS", x1:50, y1:500, x2:250, y2:500, found:false},
+    {name:"ANAEMIA", x1:50, y1:550, x2:180, y2:550, found:false},
+    {name:"ANAESTHESIA", x1:50, y1:600, x2:300, y2:600, found:false}
+];
 
-const wordListDiv=document.getElementById("wordlist");
-
-wordsData.forEach(w=>{
-const span=document.createElement("span");
-span.className="word";
-span.id="word-"+w.name;
-span.innerText=w.name;
-wordListDiv.appendChild(span);
+// --- Word list UI ---
+const wordListDiv = document.getElementById("wordList");
+words.forEach(w => {
+    const span = document.createElement("span");
+    span.textContent = w.name;
+    span.id = "word-" + w.name;
+    wordListDiv.appendChild(span);
 });
 
-
-function getPos(e){
-
-const rect=canvas.getBoundingClientRect();
-
-if(e.touches){
-return {
-x:e.touches[0].clientX-rect.left,
-y:e.touches[0].clientY-rect.top
-}
+// --- Mouse / touch handling ---
+function getMousePos(e){
+    const rect = canvas.getBoundingClientRect();
+    if(e.touches){
+        return {x:e.touches[0].clientX - rect.left, y:e.touches[0].clientY - rect.top};
+    }
+    return {x:e.clientX - rect.left, y:e.clientY - rect.top};
 }
 
-return{
-x:e.clientX-rect.left,
-y:e.clientY-rect.top
-}
-
-}
-
+function startDraw(e){ drawing=true; currentLine=[getMousePos(e)]; }
+function moveDraw(e){ if(!drawing) return; currentLine.push(getMousePos(e)); drawLines(); }
+function endDraw(){ drawing=false; lines.push(currentLine); checkWords(); drawLines(); }
 
 canvas.addEventListener("mousedown",startDraw);
 canvas.addEventListener("mousemove",moveDraw);
 canvas.addEventListener("mouseup",endDraw);
-
 canvas.addEventListener("touchstart",startDraw);
 canvas.addEventListener("touchmove",moveDraw);
 canvas.addEventListener("touchend",endDraw);
 
+// --- Drawing ---
+function drawLines(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
 
-function startDraw(e){
-drawing=true;
-currentLine=[getPos(e)];
+    // Draw already found words
+    drawWords();
+
+    // Draw user lines
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "red";
+    for(let line of lines){
+        ctx.beginPath();
+        ctx.moveTo(line[0].x,line[0].y);
+        for(let p of line) ctx.lineTo(p.x,p.y);
+        ctx.stroke();
+    }
+
+    if(currentLine.length>0){
+        ctx.beginPath();
+        ctx.moveTo(currentLine[0].x,currentLine[0].y);
+        for(let p of currentLine) ctx.lineTo(p.x,p.y);
+        ctx.stroke();
+    }
 }
 
-function moveDraw(e){
-
-if(!drawing) return;
-
-currentLine.push(getPos(e));
-draw();
-
+function drawWords(){
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "green";
+    for(let word of words){
+        if(word.found){
+            ctx.beginPath();
+            ctx.moveTo(word.x1, word.y1);
+            ctx.lineTo(word.x2, word.y2);
+            ctx.stroke();
+        }
+    }
 }
 
-function endDraw(){
-
-drawing=false;
-lines.push(currentLine);
-checkWords();
-
-}
-
-
-function draw(){
-
-ctx.clearRect(0,0,canvas.width,canvas.height);
-
-ctx.lineWidth=5;
-ctx.strokeStyle="red";
-
-for(let line of lines){
-
-ctx.beginPath();
-ctx.moveTo(line[0].x,line[0].y);
-
-for(let p of line){
-ctx.lineTo(p.x,p.y);
-}
-
-ctx.stroke();
-
-}
-
-if(currentLine.length>0){
-
-ctx.beginPath();
-ctx.moveTo(currentLine[0].x,currentLine[0].y);
-
-for(let p of currentLine){
-ctx.lineTo(p.x,p.y);
-}
-
-ctx.stroke();
-
-}
-
-}
-
-
-function dist(a,b){
-return Math.hypot(a.x-b.x,a.y-b.y);
-}
-
-
-function highlightWord(word){
-
-ctx.lineWidth=12;
-ctx.strokeStyle="rgba(0,200,0,0.5)";
-
-ctx.beginPath();
-ctx.moveTo(word.start.x,word.start.y);
-ctx.lineTo(word.end.x,word.end.y);
-ctx.stroke();
-
-}
-
+// --- Word checking ---
+function distance(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 
 function checkWords(){
+    const tolerance = 40;
+    for(let word of words){
+        if(word.found) continue;
+        const wordStart={x:word.x1,y:word.y1};
+        const wordEnd={x:word.x2,y:word.y2};
 
-const tolerance=35;
+        for(let line of lines){
+            const start=line[0];
+            const end=line[line.length-1];
 
-for(let word of wordsData){
+            const forward = distance(start,wordStart) < tolerance && distance(end,wordEnd) < tolerance;
+            const reverse = distance(start,wordEnd) < tolerance && distance(end,wordStart) < tolerance;
 
-if(word.found) continue;
+            if(forward || reverse){
+                word.found=true;
+                document.getElementById("word-"+word.name).classList.add("strikethrough");
+            }
+        }
+    }
 
-const start={x:word.start.x,y:word.start.y};
-const end={x:word.end.x,y:word.end.y};
-
-for(let line of lines){
-
-const s=line[0];
-const e=line[line.length-1];
-
-const forward=
-dist(s,start)<tolerance &&
-dist(e,end)<tolerance;
-
-const reverse=
-dist(s,end)<tolerance &&
-dist(e,start)<tolerance;
-
-if(forward||reverse){
-
-word.found=true;
-
-highlightWord(word);
-
-document.getElementById("word-"+word.name).classList.add("found");
-
+    if(words.every(w=>w.found)){
+        document.getElementById("message").textContent="🎉 Complete! Well done!";
+        launchConfetti();
+    }
 }
 
+// --- Simple confetti animation ---
+function launchConfetti(){
+    const confettiCanvas = document.createElement("canvas");
+    confettiCanvas.style.position = "fixed";
+    confettiCanvas.style.left = 0;
+    confettiCanvas.style.top = 0;
+    confettiCanvas.width = window.innerWidth;
+    confettiCanvas.height = window.innerHeight;
+    confettiCanvas.style.pointerEvents = "none";
+    document.body.appendChild(confettiCanvas);
+    const cctx = confettiCanvas.getContext("2d");
+
+    const confettis = [];
+    for(let i=0;i<150;i++){
+        confettis.push({
+            x: Math.random()*window.innerWidth,
+            y: Math.random()*window.innerHeight- window.innerHeight,
+            r: Math.random()*6+4,
+            d: Math.random()*10+5,
+            color: `hsl(${Math.random()*360},100%,50%)`,
+            tilt: Math.random()*10-5
+        });
+    }
+
+    function drawConfetti(){
+        cctx.clearRect(0,0,window.innerWidth,window.innerHeight);
+        for(let f of confettis){
+            cctx.fillStyle=f.color;
+            cctx.beginPath();
+            cctx.moveTo(f.x+f.tilt,f.y);
+            cctx.lineTo(f.x+f.tilt+f.r,f.y+f.r);
+            cctx.lineTo(f.x+f.tilt-f.r,f.y+f.r);
+            cctx.closePath();
+            cctx.fill();
+
+            f.y += f.d;
+            f.x += Math.sin(f.y/10);
+            if(f.y>window.innerHeight) f.y = -10;
+        }
+        requestAnimationFrame(drawConfetti);
+    }
+
+    drawConfetti();
 }
-
-}
-
-if(wordsData.every(w=>w.found)){
-
-document.getElementById("message").innerText="🎉 Complete! Well done!";
-
-confetti({
-particleCount:200,
-spread:120,
-origin:{y:0.6}
-});
-
-}
-
-}
-
 </script>
 
 </body>
